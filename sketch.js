@@ -7,6 +7,8 @@ let world;
 let dirty = true;
 let asciiMode = false; //true;
 let dithered = false;
+let debugZoom = false;
+
 // let player = { r: 0, c: 0 };
 let player = {
   indices: [
@@ -45,11 +47,11 @@ function setup() {
 
   world = new World(numCols, numRows);
   world.placeObject(getPlayerPos());
-  
+
   // why doesn't this work???
   // for (let i = 1; i <= world.towns.length; i++)
   //   world.placeObject(getPlayerPos(i), i);
-  
+
   world.placeObject(getPlayerPos(1), 1); // dungeon level placement
   world.placeObject(getPlayerPos(2), 2);
   world.placeObject(getPlayerPos(3), 3);
@@ -76,6 +78,8 @@ function keyPressed() {
   if (key === "2") world.worldIndex = 2;
   if (key === "1") world.worldIndex = 1;
   if (key === "0") world.worldIndex = 0;
+
+  if (key === "!") debugZoom = !debugZoom;
 }
 
 function draw() {
@@ -110,7 +114,7 @@ function draw() {
     }
 
     if (world.isTown(next_c, next_r)) {
-      world.worldIndex = world.getTownID(next_c, next_r);//1;
+      world.worldIndex = world.getTownID(next_c, next_r); //1;
     } else if (world.isWalkable(next_c, next_r)) {
       player_pos.c = next_c;
       player_pos.r = next_r;
@@ -365,11 +369,11 @@ class World {
     if (key in this.townLookup) return true;
     return false;
   }
-  
+
   // return world ID for a specific town
   getTownID(c, r) {
     let townID = -1;
-    if (this.isTown(c,r)) {
+    if (this.isTown(c, r)) {
       let key = this.townLookup[`${c}:${r}`];
       townID = this.towns[key].worldID;
       console.log(`Entering ${key}`);
@@ -389,7 +393,7 @@ class World {
 
     for (let i = 0; i < 5; i++) {
       let _n = `Town ${i}`;
-      let t = { r: 0, c: 0, worldID: i+1 };
+      let t = { r: 0, c: 0, worldID: i + 1 };
       this.placeObject(t);
       _towns[_n] = t;
       _townLookup[`${t.c}:${t.r}`] = _n;
@@ -422,55 +426,73 @@ class World {
     for (let i = 0; i < this.towns.length; i++) {
       this.world.push({});
     }
-    
+
     // generate sub-floors
     for (let town in this.towns) {
-      let alg = "randomWalker";//random(["randomWalker", "CA", "BSP"]);
-      
+      let alg = "CA"; //random(["randomWalker", "CA", "BSP"]);
+      let caChance = 0.45;
+
       let _grid = [];
       for (let r = 0; r < this.numRows; r++) {
         _grid[r] = [];
         for (let c = 0; c < this.numCols; c++) {
-          
           _grid[r][c] = {};
 
           // if (r > 0 && r < 20 && c > 0 && c < 20) {
           //   _grid[r][c].walkable = true;
           //   _grid[r][c].type = Tiles.dirt1;
           // } else {
-            _grid[r][c].walkable = false;
-            _grid[r][c].type = Tiles.space1;
-          // }
-          
+          _grid[r][c].walkable = false;
+          _grid[r][c].type = Tiles.space1;
+
+          // initialize CA generation
+          if (alg == "CA" && random() < caChance) {
+            _grid[r][c].walkable = true;
+            _grid[r][c].type = Tiles.dirt1;
+          }
         }
       }
-      
+
+      // neighbors
+      for (let r = 0; r < this.numRows; r++) {
+        for (let c = 0; c < this.numCols; c++) {
+          _grid[r][c].neighbors = [];
+          _grid[r][c].previous = undefined;
+          this.addNeighbors(_grid[r][c], c, r);
+        }
+      }
+
       // random walker
       if (alg == "randomWalker") {
-        let start_r = int(this.numRows/2);
-        let start_c = int(this.numCols/2);
-        
+        let start_r = int(this.numRows / 2);
+        let start_c = int(this.numCols / 2);
+
         let walker_r = start_r;
         let walker_c = start_c;
-        let timer = 10000;
-        
+        let timer = 100000;
+
         _grid[walker_r][walker_c].walkable = true;
         _grid[walker_r][walker_c].type = Tiles.dirt1;
-        
+
         while (timer > 0) {
-          let _dir_r = random([-1,0,1]);
-          let _dir_c = random([-1,0,1]);
-          
+          let _dir_r = random([-1, 0, 1]);
+          let _dir_c = random([-1, 0, 1]);
+
           let _next_r = _dir_r + walker_r;
           let _next_c = _dir_c + walker_c;
-          
-          if (_next_r > 0 && _next_r < this.numRows-1) walker_r = _next_r;
-          if (_next_c > 0 && _next_c < this.numCols-1) walker_c = _next_c;
-          
+
+          if (_next_r > 0 && _next_r < this.numRows - 1) walker_r = _next_r;
+          if (_next_c > 0 && _next_c < this.numCols - 1) walker_c = _next_c;
+
           _grid[walker_r][walker_c].type = Tiles.dirt1;
-          if (random() > 0.9) _grid[walker_r][walker_c].type = random([Tiles.grass1, Tiles.grass2, Tiles.grass3]);
+          if (random() > 0.9)
+            _grid[walker_r][walker_c].type = random([
+              Tiles.grass1,
+              Tiles.grass2,
+              Tiles.grass3,
+            ]);
           _grid[walker_r][walker_c].walkable = true;
-          
+
           // random restart
           if (random() > 0.99) {
             walker_r = start_r;
@@ -478,18 +500,72 @@ class World {
           }
           timer--;
         }
-      }
-      
-      for (let r = 0; r < this.numRows; r++) {
-        for (let c = 0; c < this.numCols; c++) {
-          if (_grid[r][c].walkable == true) {
-            _grid[r][c].neighbors = [];
-            _grid[r][c].previous = undefined;
-            this.addNeighbors(_grid[r][c], c, r);
+
+        // neighbors for walkable drawing
+        // for (let r = 0; r < this.numRows; r++) {
+        //   for (let c = 0; c < this.numCols; c++) {
+        //     if (_grid[r][c].walkable == true) {
+        //       _grid[r][c].neighbors = [];
+        //       _grid[r][c].previous = undefined;
+        //       this.addNeighbors(_grid[r][c], c, r);
+        //     }
+        //   }
+        // }
+        // cellular automata
+      } else if (alg == "CA") {
+        let caSteps = 10;//5;//random(3,5);
+        let deathLimit = 3;//random(2,4);
+        let birthLimit = 4;//deathLimit+1;
+
+        for (let s = 0; s < caSteps; s++) {
+          let _newGrid = [];
+          for (let r = 0; r < this.numRows; r++) {
+            _newGrid[r] = [];
+            for (let c = 0; c < this.numCols; c++) {              
+              _newGrid[r][c] = {walkable: true, type: Tiles.dirt1};
+
+              
+              // count of neighbors
+              let aliveCount = 0;
+              for (let n = 0; n < _grid[r][c].neighbors.length; n++) {
+                let _n = this.getCell(_grid[r][c].neighbors[n], _grid);
+                if (_n.walkable) aliveCount++;
+              }
+
+              // cell alive but too few neighbors, kill
+              if (_grid[r][c].walkable) {
+                if (aliveCount < deathLimit) {
+                  _newGrid[r][c].walkable = false;
+                  _newGrid[r][c].type = Tiles.space1;
+                } else {
+                  _newGrid[r][c].walkable = true;
+                  _newGrid[r][c].type = Tiles.dirt1;
+                }
+                // cell dead
+              } else {
+                if (aliveCount > birthLimit) {
+                  _newGrid[r][c].walkable = true;
+                  _newGrid[r][c].type = Tiles.dirt1;
+                } else {
+                  _newGrid[r][c].walkable = false;
+                  _newGrid[r][c].type = Tiles.space1;
+                }
+              }
+              
+            }
+          }
+
+          // copy new to old
+          for (let r = 0; r < this.numRows; r++) {
+            for (let c = 0; c < this.numCols; c++) {
+              _grid[r][c].walkable = _newGrid[r][c].walkable;
+              _grid[r][c].type = _newGrid[r][c].type;
+            }
           }
         }
+       
       }
-      
+
       // add to main object
       let _w = {};
       _w.grid = _grid;
@@ -555,8 +631,11 @@ class World {
   }
 
   // expects {r:r, c:c}
-  getCell(g) {
-    let _grid = this.getGrid();
+  getCell(g, in_grid=null) {
+    let _grid;
+    if (in_grid == null) _grid = this.getGrid();
+    else _grid = in_grid;
+    
     return _grid[g.r][g.c];
     // let _grid = this.getGrid();
     // return _grid[g.r][g.c];
@@ -588,8 +667,16 @@ class World {
       g.neighbors.push({ r: r + 1, c: c + 1 });
   }
 
-  drawTile(x, y, c, r) {
+  drawTile(x, y, c, r, cs = null) {
     let _grid = this.getGrid();
+
+    let _cellsize = this.cellSize;
+    let _halfcell = this.halfCellSize;
+
+    if (cs != null) {
+      _cellsize = cs;
+      _halfcell = cs / 2;
+    }
 
     // let _grid = this.grid;//this.getGrid();
     let _t = _grid[r][c]; //_grid[r][c];
@@ -597,16 +684,16 @@ class World {
     if (asciiMode) {
       // text
       fill(color(_t.type.color));
-      if (_t.type.ascii == " ") square(x, y, this.cellSize);
-      else text(_t.type.ascii, x + this.halfCellSize, y + this.halfCellSize);
+      if (_t.type.ascii == " ") square(x, y, _cellsize);
+      else text(_t.type.ascii, x + _halfcell, y + _halfcell);
     } else {
       // sprite
       image(
         spriteSheet,
         x,
         y,
-        this.cellSize,
-        this.cellSize,
+        _cellsize,
+        _cellsize,
         _t.type.c * spriteSize,
         _t.type.r * spriteSize,
         spriteSize,
@@ -638,112 +725,129 @@ class World {
     let player_pos = getPlayerPos();
 
     // http://www.roguebasin.com/index.php/Scrolling_map
-    let starty, startx, endy, endx;
 
-    if (player_pos.c < this.halfCamC) startx = 0;
-    else if (player_pos.c >= this.numCols - this.halfCamC)
-      startx = this.numCols - this.camCols;
-    else startx = player_pos.c - this.halfCamC;
-
-    if (player_pos.r < this.halfCamR) starty = 0;
-    else if (player_pos.r >= this.numRows - this.halfCamR)
-      starty = this.numRows - this.camRows;
-    else starty = player_pos.r - this.halfCamR;
-
-    // draw in camera range
-    let _x = 0;
-    let _y = this.border_offset;
-    for (let r = starty; r < starty + this.camRows; r++) {
-      _x = 0;
-      for (let c = startx; c < startx + this.camCols; c++) {
-        // draw map feature before drawing base layer
-        // let _n = `${c}:${r}`;
-        // if (_n in this.townLookup)
-
-        this.drawTile(_x, _y, c, r);
-
-        if (r == player_pos.r && c == player_pos.c) {
-          // abstract later
-          if (asciiMode) {
-            fill(Tiles.player.color);
-            text("@", _x + this.halfCellSize, _y + this.halfCellSize);
-          } else {
-            // sprite
-            let _col = color(0); //Tiles.player.color);
-            _col.setAlpha(140);
-            fill(_col);
-            square(_x, _y, this.cellSize);
-            image(
-              spriteSheet,
-              _x,
-              _y,
-              this.cellSize,
-              this.cellSize,
-              Tiles.player.c * spriteSize,
-              Tiles.player.r * spriteSize,
-              spriteSize,
-              spriteSize
-            );
-          }
+    /** DEBUG WHOLE MAP DRAW **/
+    if (debugZoom) {
+      let y = 0;
+      let cs = width / this.numCols;
+      for (let r = 0; r < this.numRows; r++) {
+        let x = 0;
+        for (let c = 0; c < this.numCols; c++) {
+          this.drawTile(x, y, c, r, cs);
+          x += cs;
         }
-        //         if (dirty) {
-        //           let n = grid[r][c].noise;
-
-        //           noStroke();
-        //           fill(grid[r][c].color);
-        //           square(_x, _y, cellSize);
-
-        //           if (grid[r][c].entity == "T")
-        //             image(sprites.town.image, _x, _y, spriteScaled, spriteScaled);
-        //           if (grid[r][c].entity == "tree")
-        //             image(
-        //               sprites[`tree${grid[r][c].entityID}`].image,
-        //               _x,
-        //               _y,
-        //               spriteScaled,
-        //               spriteScaled
-        //             );
-        //           if (grid[r][c].entity == "grass")
-        //             image(
-        //               sprites[`grass${grid[r][c].entityID}`].image,
-        //               _x,
-        //               _y,
-        //               spriteScaled,
-        //               spriteScaled
-        //             );
-        //         }
-
-        //         if (grid[r][c].animation) {
-        //           let _g = grid[r][c];
-        //           fill(_g.color);
-        //           square(_x, _y, cellSize);
-        //           image(
-        //             sprites[_g.animationFrames[_g.animationIndex]].image,
-        //             _x,
-        //             _y,
-        //             spriteScaled,
-        //             spriteScaled
-        //           );
-
-        //           _g.animationUpdate--;
-        //           if (_g.animationUpdate <= 0) {
-        //             _g.animationIndex++;
-        //             if (_g.animationIndex > _g.animationFrames.length - 1)
-        //               _g.animationIndex = 0;
-
-        //             _g.animationUpdate = int(random(2, 20));
-        //           }
-
-        //           if (r == player.r && c == player.c) player.draw(startx, starty);
-        //         }
-        // if (r == player.r && c == player.c) {
-        //   fill(255);
-        //   text("@", startx, starty);
-        // }
-
-        _x += this.cellSize;
+        x = 0;
+        y += cs;
       }
-      _y += this.cellSize;
+      // NORMAL CAMERA
+    } else {
+      let starty, startx, endy, endx;
+
+      if (player_pos.c < this.halfCamC) startx = 0;
+      else if (player_pos.c >= this.numCols - this.halfCamC)
+        startx = this.numCols - this.camCols;
+      else startx = player_pos.c - this.halfCamC;
+
+      if (player_pos.r < this.halfCamR) starty = 0;
+      else if (player_pos.r >= this.numRows - this.halfCamR)
+        starty = this.numRows - this.camRows;
+      else starty = player_pos.r - this.halfCamR;
+
+      // draw in camera range
+      let _x = 0;
+      let _y = this.border_offset;
+      for (let r = starty; r < starty + this.camRows; r++) {
+        _x = 0;
+        for (let c = startx; c < startx + this.camCols; c++) {
+          // draw map feature before drawing base layer
+          // let _n = `${c}:${r}`;
+          // if (_n in this.townLookup)
+
+          this.drawTile(_x, _y, c, r);
+
+          if (r == player_pos.r && c == player_pos.c) {
+            // abstract later
+            if (asciiMode) {
+              fill(Tiles.player.color);
+              text("@", _x + this.halfCellSize, _y + this.halfCellSize);
+            } else {
+              // sprite
+              let _col = color(0); //Tiles.player.color);
+              _col.setAlpha(140);
+              fill(_col);
+              square(_x, _y, this.cellSize);
+              image(
+                spriteSheet,
+                _x,
+                _y,
+                this.cellSize,
+                this.cellSize,
+                Tiles.player.c * spriteSize,
+                Tiles.player.r * spriteSize,
+                spriteSize,
+                spriteSize
+              );
+            }
+          }
+          //         if (dirty) {
+          //           let n = grid[r][c].noise;
+
+          //           noStroke();
+          //           fill(grid[r][c].color);
+          //           square(_x, _y, cellSize);
+
+          //           if (grid[r][c].entity == "T")
+          //             image(sprites.town.image, _x, _y, spriteScaled, spriteScaled);
+          //           if (grid[r][c].entity == "tree")
+          //             image(
+          //               sprites[`tree${grid[r][c].entityID}`].image,
+          //               _x,
+          //               _y,
+          //               spriteScaled,
+          //               spriteScaled
+          //             );
+          //           if (grid[r][c].entity == "grass")
+          //             image(
+          //               sprites[`grass${grid[r][c].entityID}`].image,
+          //               _x,
+          //               _y,
+          //               spriteScaled,
+          //               spriteScaled
+          //             );
+          //         }
+
+          //         if (grid[r][c].animation) {
+          //           let _g = grid[r][c];
+          //           fill(_g.color);
+          //           square(_x, _y, cellSize);
+          //           image(
+          //             sprites[_g.animationFrames[_g.animationIndex]].image,
+          //             _x,
+          //             _y,
+          //             spriteScaled,
+          //             spriteScaled
+          //           );
+
+          //           _g.animationUpdate--;
+          //           if (_g.animationUpdate <= 0) {
+          //             _g.animationIndex++;
+          //             if (_g.animationIndex > _g.animationFrames.length - 1)
+          //               _g.animationIndex = 0;
+
+          //             _g.animationUpdate = int(random(2, 20));
+          //           }
+
+          //           if (r == player.r && c == player.c) player.draw(startx, starty);
+          //         }
+          // if (r == player.r && c == player.c) {
+          //   fill(255);
+          //   text("@", startx, starty);
+          // }
+
+          _x += this.cellSize;
+        }
+        _y += this.cellSize;
+      }
     }
 
     // if (dirty) {
