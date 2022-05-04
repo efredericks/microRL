@@ -1,18 +1,38 @@
+// a* c/o https://editor.p5js.org/codingtrain/sketches/ehLjdFpat
+// camera c/o // http://www.roguebasin.com/index.php/Scrolling_map
+
 const numRows = 500;
 const numCols = 500;
 let world;
 let dirty = true;
-let asciiMode = true;
-let player = { r: 0, c: 0 };
+let asciiMode = false; //true;
+let dithered = false;
+// let player = { r: 0, c: 0 };
+let player = {
+  indices: [
+    { r: 0, c: 0 },
+    { r: 40, c: 40 },
+    { r: 40, c: 40 },
+    { r: 40, c: 40 },
+    { r: 40, c: 40 },
+    { r: 40, c: 40 },
+  ],
+};
 let spriteSheet;
 const spriteSize = 16;
 let halfScreenWidth;
+
+function getPlayerPos(worldLevel = null) {
+  if (worldLevel == null) return player.indices[world.worldIndex];
+  else return player.indices[worldLevel];
+}
 
 function preload() {
   spriteSheet = loadImage("colored_transparent_packed.png");
 }
 function setup() {
   createCanvas(1024, 800);
+  //2048,1600);
   noiseDetail(8, 0.25);
   noSmooth();
 
@@ -24,20 +44,47 @@ function setup() {
   background(0);
 
   world = new World(numCols, numRows);
-  world.placeObject(player);
+  world.placeObject(getPlayerPos());
+  
+  // why doesn't this work???
+  // for (let i = 1; i <= world.towns.length; i++)
+  //   world.placeObject(getPlayerPos(i), i);
+  
+  world.placeObject(getPlayerPos(1), 1); // dungeon level placement
+  world.placeObject(getPlayerPos(2), 2);
+  world.placeObject(getPlayerPos(3), 3);
+  world.placeObject(getPlayerPos(4), 4);
+  world.placeObject(getPlayerPos(5), 5);
+
+  // connect player to town to ensure a path
+
+  let player_pos = getPlayerPos();
+  world.connectPaths(world.towns["Town 0"], {
+    r: player_pos.r,
+    c: player_pos.c,
+  });
   // console.log(world.grid);
+  frameRate(12);
 }
 
 function keyPressed() {
   if (key === "~") asciiMode = !asciiMode;
+  if (key === "`") dithered = !dithered;
+  if (key === "5") world.worldIndex = 5;
+  if (key === "4") world.worldIndex = 4;
+  if (key === "3") world.worldIndex = 3;
+  if (key === "2") world.worldIndex = 2;
+  if (key === "1") world.worldIndex = 1;
+  if (key === "0") world.worldIndex = 0;
 }
 
 function draw() {
   if (dirty) world.draw();
 
   if (keyIsPressed) {
-    let next_r = player.r;
-    let next_c = player.c;
+    let player_pos = getPlayerPos();
+    let next_r = player_pos.r;
+    let next_c = player_pos.c;
     if (keyIsDown(74)) {
       next_r++;
     } else if (keyIsDown(75)) {
@@ -62,13 +109,15 @@ function draw() {
       // period
     }
 
-    if (world.isWalkable(next_c, next_r)) {
-      player.c = next_c;
-      player.r = next_r;
+    if (world.isTown(next_c, next_r)) {
+      world.worldIndex = world.getTownID(next_c, next_r);//1;
+    } else if (world.isWalkable(next_c, next_r)) {
+      player_pos.c = next_c;
+      player_pos.r = next_r;
     }
 
-    player.c = constrain(player.c, 0, world.getCols() - 1);
-    player.r = constrain(player.r, 0, world.getRows() - 1);
+    player_pos.c = constrain(player_pos.c, 0, world.getCols() - 1);
+    player_pos.r = constrain(player_pos.r, 0, world.getRows() - 1);
 
     dirty = true;
 
@@ -108,14 +157,43 @@ const WALKABLE = [
   Tiles.grass3,
   Tiles.dirt1,
   //debug
-  Tiles.space1,
-  Tiles.space2,
+  // Tiles.space1,
+  // Tiles.space2,
+  // Tiles.tree1,
+  // Tiles.tree2,
+  // Tiles.tree3,
+  // Tiles.tree4,
+  // Tiles.tree5,
+  // Tiles.tree6,
+  // Tiles.tree7,
+  // Tiles.tree8,
 ];
+
+// surround with paths -- better way?
+const SURROUND_WITH_PATH = [
+  Tiles.tree1,
+  Tiles.tree2,
+  Tiles.tree3,
+  Tiles.tree4,
+  Tiles.tree5,
+  Tiles.tree6,
+  Tiles.tree7,
+  Tiles.tree8,
+  Tiles.town,
+];
+
+class Entity {
+  constructor(type) {
+    this.type = type;
+  }
+}
 
 class World {
   constructor(numCols, numRows) {
     this.numCols = numCols;
     this.numRows = numRows;
+    this.worldIndex = 0; // 0 is the overworld - others are sub-worlds
+
     this.cellSize = 32; //width / this.numCols;
     this.halfCellSize = this.cellSize / 2; // reduce amount of run-time divides needed
 
@@ -129,78 +207,300 @@ class World {
 
     textSize(this.cellSize);
 
-    this.grid = this.generateWorld();
+    this.world = this.generateWorld();
+    // console.log(this.grid);
     let _t = this.placeTowns();
-    this.towns = _t[0];
-    this.townLookup = _t[1];
+    this.towns = _t.towns;
+    this.townLookup = _t.townLookup;
+
+    // sub-floors
+    this.generateDungeons();
+
+    // borders and paths
+    this.placePaths();
   }
 
+  // eventually these need to be their own thing
   getRows() {
-    return this.numRows;
+    return this.numRows; // this.grid[this.worldIndex].numRows;
   }
   getCols() {
-    return this.numCols;
+    return this.numCols; //this.grid[this.worldIndex].numCols;
+  }
+  getGrid(worldLevel = null) {
+    if (worldLevel == null) return this.world[this.worldIndex].grid;
+    else return this.world[worldLevel].grid;
   }
 
   // find an open spot to place our object
-  placeObject(p) {
+  placeObject(p, worldLevel = 0) {
     p.r = random(0, this.getRows() - 1) | 0;
     p.c = random(0, this.getCols() - 1) | 0;
 
-    while (!this.isWalkable(p.c, p.r)) {
+    while (!this.isWalkable(p.c, p.r, worldLevel)) {
       p.r = random(0, this.getRows() - 1) | 0;
       p.c = random(0, this.getCols() - 1) | 0;
     }
   }
 
   // in-bounds and can walk over it
-  isWalkable(c, r) {
+  isWalkable(c, r, worldLevel) {
+    let _grid = this.getGrid(worldLevel);
     if (
       c >= 0 &&
       c <= this.getCols() - 1 &&
       r >= 0 &&
       r <= this.getRows() - 1
     ) {
-      if (WALKABLE.indexOf(this.grid[r][c].type) >= 0) return true;
+      if (WALKABLE.indexOf(_grid[r][c].type) >= 0) return true;
     }
     return false;
   }
-  
-  // place towns
-  // towns is the object
-  // townLookup points to the town based on a key of `c:r`
-  placeTowns() {
-    let _towns = {};
-    let _townLookup = {};
-    
-    for (let i = 0; i < 5; i++) {
-      let _n = `Town ${i}`;
-      let t = { r: 0, c: 0 };
-      this.placeObject(t);
-      _towns[_n] = t;
-      _townLookup[`${t.c}:${t.r}`] = _n;
-      
-      this.grid[t.r][t.c].type = Tiles.town;
-    }
-    
-    // dirt around towns
-    for (let _t in _towns) {
-      let _cell = this.grid[_towns[_t].r][_towns[_t].c];
-      
-      for (let j = 0; j < _cell.neighbors.length; j++) {
-        let _g = _cell.neighbors[j];
-        // console.log(_g);
-        if (this.getCell(_g).type != Tiles.town) {
-          this.grid[_g.r][_g.c].type = Tiles.dirt1;
+
+  // place walking paths
+  // * around forests
+  // * between towns
+  placePaths() {
+    let _grid = this.getGrid();
+
+    for (let r = 0; r < this.getRows(); r++) {
+      for (let c = 0; c < this.getCols(); c++) {
+        let _cell = _grid[r][c];
+
+        // place borders around trees
+        if (SURROUND_WITH_PATH.indexOf(_cell.type) >= 0) {
+          for (let j = 0; j < _cell.neighbors.length; j++) {
+            let _g = _cell.neighbors[j];
+
+            let _neighborCell = this.getCell(_g);
+            if (SURROUND_WITH_PATH.indexOf(_neighborCell.type) < 0) {
+              _grid[_g.r][_g.c].type = Tiles.dirt1;
+            }
+          }
         }
       }
     }
-    
+
+    // paths between towns
+    this.connectingPaths();
+
+    // this.aStar();
+  }
+  // draw roads between each city to help with player pathing
+  connectPaths(p1, p2) {
+    let _grid = this.getGrid();
+
+    let _start = p1;
+    let _end = p2;
+    let done = false;
+
+    let curr_r = _start.r;
+    let curr_c = _start.c;
+    while (!done) {
+      if (curr_r < _end.r) curr_r++;
+      else if (curr_r > _end.r) curr_r--;
+      curr_r = constrain(curr_r, 0, this.getRows() - 1);
+
+      if (curr_c < _end.c) curr_c++;
+      else if (curr_c > _end.c) curr_c--;
+      curr_c = constrain(curr_c, 0, this.getCols() - 1);
+
+      // dirt path if not town
+      if (_grid[curr_r][curr_c].type != Tiles.town) {
+        _grid[curr_r][curr_c].type = Tiles.dirt1;
+
+        // widen path a bit - only care about towns as we're tunneling out a path
+        for (let j = 0; j < _grid[curr_r][curr_c].neighbors.length; j++) {
+          let _g = _grid[curr_r][curr_c].neighbors[j];
+          let _neighborCell = this.getCell(_g);
+          if (_neighborCell.type != Tiles.town) {
+            _grid[_g.r][_g.c].type = Tiles.dirt1;
+          }
+        }
+      }
+
+      // end case
+      if (curr_r == _end.r && curr_c == _end.c) done = true;
+    }
+  }
+  connectingPaths() {
+    // abstract to all towns
+    let found = [];
+    for (let t1 in this.towns) {
+      for (let t2 in this.towns) {
+        let k1 = `${t1}::${t2}`;
+        let k2 = `${t2}::${t1}`;
+        if (t1 != t2 && found.indexOf(k1) < 0 && found.indexOf(k2) < 0) {
+          this.connectPaths(this.towns[t1], this.towns[t2]);
+
+          found.push(k1);
+        }
+      }
+    }
+  }
+
+  aStar() {
+    let _grid = this.getGrid();
+    let openSet = [];
+    let closedSet = [];
+    let start, end;
+    let path = [];
+
+    // abstract to all towns
+    let _start = this.towns["Town 0"];
+    let _end = this.towns["Town 1"];
+
+    start = _grid[_start.r][_start.c];
+    end = _grid[_end.r][_end.c];
+
+    openSet.push(start);
+
+    // try for path around first and then tunnel if not?
+  }
+
+  // check if player hits something to change the level
+  // tbd - need to incorporate world index
+  isTown(c, r) {
+    let key = `${c}:${r}`;
+    if (key in this.townLookup) return true;
+    return false;
+  }
+  
+  // return world ID for a specific town
+  getTownID(c, r) {
+    let townID = -1;
+    if (this.isTown(c,r)) {
+      let key = this.townLookup[`${c}:${r}`];
+      townID = this.towns[key].worldID;
+      console.log(`Entering ${key}`);
+    }
+    return townID;
+  }
+
+  // place towns
+  // towns is the object
+  // townLookup points to the town based on a key of `c:r`
+  // tbd - need to incorporate world index
+  placeTowns() {
+    let _grid = this.getGrid();
+
+    let _towns = {};
+    let _townLookup = {};
+
+    for (let i = 0; i < 5; i++) {
+      let _n = `Town ${i}`;
+      let t = { r: 0, c: 0, worldID: i+1 };
+      this.placeObject(t);
+      _towns[_n] = t;
+      _townLookup[`${t.c}:${t.r}`] = _n;
+
+      _grid[t.r][t.c].type = Tiles.town;
+      _grid[t.r][t.c].worldID = i + 1;
+    }
+
+    // dirt around towns
+    //     for (let _t Vin _towns) {
+    //       let _cell = this.grid[_towns[_t].r][_towns[_t].c];
+
+    //       for (let j = 0; j < _cell.neighbors.length; j++) {
+    //         let _g = _cell.neighbors[j];
+    //         // console.log(_g);
+    //         if (this.getCell(_g).type != Tiles.town) {
+    //           this.grid[_g.r][_g.c].type = Tiles.dirt1;
+    //         }
+    //       }
+    //     }
+
     console.log(_townLookup);
-    return (_towns, _townLookup);
+    return { towns: _towns, townLookup: _townLookup };
+  }
+
+  // generate the sub-worlds
+  generateDungeons() {
+    // generate enough sub-worlds for each town
+    // - not guaranteed to be in order...
+    for (let i = 0; i < this.towns.length; i++) {
+      this.world.push({});
+    }
+    
+    // generate sub-floors
+    for (let town in this.towns) {
+      let alg = "randomWalker";//random(["randomWalker", "CA", "BSP"]);
+      
+      let _grid = [];
+      for (let r = 0; r < this.numRows; r++) {
+        _grid[r] = [];
+        for (let c = 0; c < this.numCols; c++) {
+          
+          _grid[r][c] = {};
+
+          // if (r > 0 && r < 20 && c > 0 && c < 20) {
+          //   _grid[r][c].walkable = true;
+          //   _grid[r][c].type = Tiles.dirt1;
+          // } else {
+            _grid[r][c].walkable = false;
+            _grid[r][c].type = Tiles.space1;
+          // }
+          
+        }
+      }
+      
+      // random walker
+      if (alg == "randomWalker") {
+        let start_r = int(this.numRows/2);
+        let start_c = int(this.numCols/2);
+        
+        let walker_r = start_r;
+        let walker_c = start_c;
+        let timer = 10000;
+        
+        _grid[walker_r][walker_c].walkable = true;
+        _grid[walker_r][walker_c].type = Tiles.dirt1;
+        
+        while (timer > 0) {
+          let _dir_r = random([-1,0,1]);
+          let _dir_c = random([-1,0,1]);
+          
+          let _next_r = _dir_r + walker_r;
+          let _next_c = _dir_c + walker_c;
+          
+          if (_next_r > 0 && _next_r < this.numRows-1) walker_r = _next_r;
+          if (_next_c > 0 && _next_c < this.numCols-1) walker_c = _next_c;
+          
+          _grid[walker_r][walker_c].type = Tiles.dirt1;
+          if (random() > 0.9) _grid[walker_r][walker_c].type = random([Tiles.grass1, Tiles.grass2, Tiles.grass3]);
+          _grid[walker_r][walker_c].walkable = true;
+          
+          // random restart
+          if (random() > 0.99) {
+            walker_r = start_r;
+            walker_c = start_c;
+          }
+          timer--;
+        }
+      }
+      
+      for (let r = 0; r < this.numRows; r++) {
+        for (let c = 0; c < this.numCols; c++) {
+          if (_grid[r][c].walkable == true) {
+            _grid[r][c].neighbors = [];
+            _grid[r][c].previous = undefined;
+            this.addNeighbors(_grid[r][c], c, r);
+          }
+        }
+      }
+      
+      // add to main object
+      let _w = {};
+      _w.grid = _grid;
+      _w.numRows = _grid.length;
+      _w.numCols = _grid[0].length;
+      this.world[this.towns[town].worldID] = _w;
+    }
   }
 
   generateWorld() {
+    let _world = [];
     let _grid = [];
 
     // basic noise gen
@@ -210,6 +510,7 @@ class World {
         _grid[r][c] = {};
 
         let _n = noise(c * 0.01, r * 0.01);
+        let _surround = false;
         if (_n < 0.25) {
           _grid[r][c].type = random([Tiles.space1, Tiles.space2]);
         } else if (_n < 0.4) {
@@ -234,47 +535,64 @@ class World {
         _grid[r][c].walkable = false;
         if (WALKABLE.indexOf(_grid[r][c].type) >= 0)
           _grid[r][c].walkable = true;
-        
+
         // pathing information
         _grid[r][c].neighbors = [];
         _grid[r][c].previous = undefined;
-        this.addNeighbors(_grid[r][c], c, r);
+        this.addNeighbors(_grid[r][c], c, r); //, this.numCols, this.numRows);
       }
     }
+    // return _grid;
 
-    // towns
-    return _grid;
+    let _w = {};
+    _w.grid = _grid;
+    _w.numRows = _grid.length;
+    _w.numCols = _grid[0].length;
+    _world.push(_w);
+
+    //     console.log(_world);
+    return _world; //_grid;
   }
-  
+
   // expects {r:r, c:c}
   getCell(g) {
-    return this.grid[g.r][g.c];
+    let _grid = this.getGrid();
+    return _grid[g.r][g.c];
+    // let _grid = this.getGrid();
+    // return _grid[g.r][g.c];
   }
-  
+
   // add neighboring cells
   addNeighbors(g, c, r) {
+    //, nCols, nRows) {
     // left
-    if (c > 0) g.neighbors.push({c:c-1,r:r});
+    if (c > 0) g.neighbors.push({ c: c - 1, r: r });
     // right
-    if (c < this.getCols()-1) g.neighbors.push({c:c+1,r:r});
-    
+    if (c < this.getCols() - 1) g.neighbors.push({ c: c + 1, r: r });
+
     // top
-    if (r > 0) g.neighbors.push({r:r-1,c:c});
+    if (r > 0) g.neighbors.push({ r: r - 1, c: c });
     // bottom
-    if (r < this.getRows()-1) g.neighbors.push({r:r+1,c:c});
-    
+    if (r < this.getRows() - 1) g.neighbors.push({ r: r + 1, c: c });
+
     // top left
-    if (c > 0 && r > 0) g.neighbors.push({r:r-1,c:c-1});
+    if (c > 0 && r > 0) g.neighbors.push({ r: r - 1, c: c - 1 });
     // top right
-    if (c < this.getCols()-1 && r > 0) g.neighbors.push({r:r-1,c:c+1});
+    if (c < this.getCols() - 1 && r > 0)
+      g.neighbors.push({ r: r - 1, c: c + 1 });
     // bottom left
-    if (c > 0 && r < this.getRows()-1) g.neighbors.push({r:r+1,c:c-1});
+    if (c > 0 && r < this.getRows() - 1)
+      g.neighbors.push({ r: r + 1, c: c - 1 });
     // bottom right
-    if (c < this.getCols()-1 && r < this.getRows()-1) g.neighbors.push({r:r+1,c:c+1});
+    if (c < this.getCols() - 1 && r < this.getRows() - 1)
+      g.neighbors.push({ r: r + 1, c: c + 1 });
   }
 
   drawTile(x, y, c, r) {
-    let _t = this.grid[r][c];
+    let _grid = this.getGrid();
+
+    // let _grid = this.grid;//this.getGrid();
+    let _t = _grid[r][c]; //_grid[r][c];
 
     if (asciiMode) {
       // text
@@ -298,13 +616,14 @@ class World {
   }
 
   drawUI() {
+    let player_pos = getPlayerPos();
     noStroke();
     fill(color(120, 120, 0));
     rect(0, 0, width, this.border_offset);
     fill(255);
     textAlign(CENTER, CENTER);
     text(
-      `microRL [${player.c}/${this.numCols - 1}:${player.r}/${
+      `microRL [${player_pos.c}/${this.numCols - 1}:${player_pos.r}/${
         this.numRows - 1
       }]`,
       halfScreenWidth,
@@ -316,18 +635,20 @@ class World {
     background(0);
     this.drawUI();
 
+    let player_pos = getPlayerPos();
+
     // http://www.roguebasin.com/index.php/Scrolling_map
     let starty, startx, endy, endx;
 
-    if (player.c < this.halfCamC) startx = 0;
-    else if (player.c >= this.numCols - this.halfCamC)
+    if (player_pos.c < this.halfCamC) startx = 0;
+    else if (player_pos.c >= this.numCols - this.halfCamC)
       startx = this.numCols - this.camCols;
-    else startx = player.c - this.halfCamC;
+    else startx = player_pos.c - this.halfCamC;
 
-    if (player.r < this.halfCamR) starty = 0;
-    else if (player.r >= this.numRows - this.halfCamR)
+    if (player_pos.r < this.halfCamR) starty = 0;
+    else if (player_pos.r >= this.numRows - this.halfCamR)
       starty = this.numRows - this.camRows;
-    else starty = player.r - this.halfCamR;
+    else starty = player_pos.r - this.halfCamR;
 
     // draw in camera range
     let _x = 0;
@@ -335,15 +656,13 @@ class World {
     for (let r = starty; r < starty + this.camRows; r++) {
       _x = 0;
       for (let c = startx; c < startx + this.camCols; c++) {
-        
         // draw map feature before drawing base layer
         // let _n = `${c}:${r}`;
         // if (_n in this.townLookup)
-          
-        
+
         this.drawTile(_x, _y, c, r);
 
-        if (r == player.r && c == player.c) {
+        if (r == player_pos.r && c == player_pos.c) {
           // abstract later
           if (asciiMode) {
             fill(Tiles.player.color);
@@ -448,5 +767,24 @@ class World {
     //   x = 0;
     //   y += this.cellSize;
     // }
+    if (dithered) dither(null);
   }
+}
+
+// A* helpers
+
+// Function to delete element from the array
+function removeFromArray(arr, elt) {
+  // Could use indexOf here instead to be more efficient
+  for (var i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] == elt) {
+      arr.splice(i, 1);
+    }
+  }
+}
+// An educated guess of how far it is between two points
+function heuristic(a, b) {
+  var d = dist(a.i, a.j, b.i, b.j);
+  // var d = abs(a.i - b.i) + abs(a.j - b.j);
+  return d;
 }
