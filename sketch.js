@@ -1,8 +1,13 @@
-// a* c/o https://editor.p5js.org/codingtrain/sketches/ehLjdFpat
-// camera c/o // http://www.roguebasin.com/index.php/Scrolling_map
+// a* c/o: https://editor.p5js.org/codingtrain/sketches/ehLjdFpat
+// camera c/o: // http://www.roguebasin.com/index.php/Scrolling_map
+// cellular automata c/o: https://gamedevelopment.tutsplus.com/tutorials/generate-random-cave-levels-using-cellular-automata--gamedev-9664
 
 const numRows = 500;
 const numCols = 500;
+
+const subRows = 100;
+const subCols = 100;
+
 let world;
 let dirty = true;
 let asciiMode = false; //true;
@@ -45,7 +50,7 @@ function setup() {
 
   background(0);
 
-  world = new World(numCols, numRows);
+  world = new World(numCols, numRows, subCols, subRows);
   world.placeObject(getPlayerPos());
 
   // why doesn't this work???
@@ -193,9 +198,11 @@ class Entity {
 }
 
 class World {
-  constructor(numCols, numRows) {
+  constructor(numCols, numRows, subCols, subRows) {
     this.numCols = numCols;
     this.numRows = numRows;
+    this.subRows = subRows;
+    this.subCols = subCols;
     this.worldIndex = 0; // 0 is the overworld - others are sub-worlds
 
     this.cellSize = 32; //width / this.numCols;
@@ -225,11 +232,13 @@ class World {
   }
 
   // eventually these need to be their own thing
-  getRows() {
-    return this.numRows; // this.grid[this.worldIndex].numRows;
+  getRows(worldLevel = null) {
+    if (worldLevel == null) return this.world[this.worldIndex].numRows;
+    else return this.world[worldLevel].numRows;
   }
-  getCols() {
-    return this.numCols; //this.grid[this.worldIndex].numCols;
+  getCols(worldLevel = null) {
+    if (worldLevel == null) return this.world[this.worldIndex].numCols;
+    else return this.world[worldLevel].numCols;
   }
   getGrid(worldLevel = null) {
     if (worldLevel == null) return this.world[this.worldIndex].grid;
@@ -252,9 +261,9 @@ class World {
     let _grid = this.getGrid(worldLevel);
     if (
       c >= 0 &&
-      c <= this.getCols() - 1 &&
+      c <= this.getCols(worldLevel) - 1 &&
       r >= 0 &&
-      r <= this.getRows() - 1
+      r <= this.getRows(worldLevel) - 1
     ) {
       if (WALKABLE.indexOf(_grid[r][c].type) >= 0) return true;
     }
@@ -429,13 +438,13 @@ class World {
 
     // generate sub-floors
     for (let town in this.towns) {
-      let alg = "CA"; //random(["randomWalker", "CA", "BSP"]);
+      let alg = random(["randomWalker", "CA"]);//, "BSP"]);
       let caChance = 0.45;
 
       let _grid = [];
-      for (let r = 0; r < this.numRows; r++) {
+      for (let r = 0; r < this.subRows; r++) {
         _grid[r] = [];
-        for (let c = 0; c < this.numCols; c++) {
+        for (let c = 0; c < this.subCols; c++) {
           _grid[r][c] = {};
 
           // if (r > 0 && r < 20 && c > 0 && c < 20) {
@@ -454,18 +463,18 @@ class World {
       }
 
       // neighbors
-      for (let r = 0; r < this.numRows; r++) {
-        for (let c = 0; c < this.numCols; c++) {
+      for (let r = 0; r < this.subRows; r++) {
+        for (let c = 0; c < this.subCols; c++) {
           _grid[r][c].neighbors = [];
           _grid[r][c].previous = undefined;
-          this.addNeighbors(_grid[r][c], c, r);
+          this.addNeighbors(_grid[r][c], c, r, this.subCols, this.subRows);
         }
       }
 
       // random walker
       if (alg == "randomWalker") {
-        let start_r = int(this.numRows / 2);
-        let start_c = int(this.numCols / 2);
+        let start_r = int(this.subRows / 2);
+        let start_c = int(this.subCols / 2);
 
         let walker_r = start_r;
         let walker_c = start_c;
@@ -481,8 +490,8 @@ class World {
           let _next_r = _dir_r + walker_r;
           let _next_c = _dir_c + walker_c;
 
-          if (_next_r > 0 && _next_r < this.numRows - 1) walker_r = _next_r;
-          if (_next_c > 0 && _next_c < this.numCols - 1) walker_c = _next_c;
+          if (_next_r > 0 && _next_r < this.subRows - 1) walker_r = _next_r;
+          if (_next_c > 0 && _next_c < this.subCols - 1) walker_c = _next_c;
 
           _grid[walker_r][walker_c].type = Tiles.dirt1;
           if (random() > 0.9)
@@ -519,9 +528,9 @@ class World {
 
         for (let s = 0; s < caSteps; s++) {
           let _newGrid = [];
-          for (let r = 0; r < this.numRows; r++) {
+          for (let r = 0; r < this.subRows; r++) {
             _newGrid[r] = [];
-            for (let c = 0; c < this.numCols; c++) {              
+            for (let c = 0; c < this.subCols; c++) {              
               _newGrid[r][c] = {walkable: true, type: Tiles.dirt1};
 
               
@@ -556,8 +565,8 @@ class World {
           }
 
           // copy new to old
-          for (let r = 0; r < this.numRows; r++) {
-            for (let c = 0; c < this.numCols; c++) {
+          for (let r = 0; r < this.subRows; r++) {
+            for (let c = 0; c < this.subCols; c++) {
               _grid[r][c].walkable = _newGrid[r][c].walkable;
               _grid[r][c].type = _newGrid[r][c].type;
             }
@@ -569,8 +578,8 @@ class World {
       // add to main object
       let _w = {};
       _w.grid = _grid;
-      _w.numRows = _grid.length;
-      _w.numCols = _grid[0].length;
+      _w.numRows = this.subRows;
+      _w.numCols = this.subCols;
       this.world[this.towns[town].worldID] = _w;
     }
   }
@@ -615,7 +624,7 @@ class World {
         // pathing information
         _grid[r][c].neighbors = [];
         _grid[r][c].previous = undefined;
-        this.addNeighbors(_grid[r][c], c, r); //, this.numCols, this.numRows);
+        this.addNeighbors(_grid[r][c], c, r, this.numCols, this.numRows);
       }
     }
     // return _grid;
@@ -642,28 +651,29 @@ class World {
   }
 
   // add neighboring cells
-  addNeighbors(g, c, r) {
+  // take in numrows/cols as this can be called prior to world init
+  addNeighbors(g, c, r, numC, numR) {
     //, nCols, nRows) {
     // left
     if (c > 0) g.neighbors.push({ c: c - 1, r: r });
     // right
-    if (c < this.getCols() - 1) g.neighbors.push({ c: c + 1, r: r });
+    if (c < numC - 1) g.neighbors.push({ c: c + 1, r: r });
 
     // top
     if (r > 0) g.neighbors.push({ r: r - 1, c: c });
     // bottom
-    if (r < this.getRows() - 1) g.neighbors.push({ r: r + 1, c: c });
+    if (r < numR - 1) g.neighbors.push({ r: r + 1, c: c });
 
     // top left
     if (c > 0 && r > 0) g.neighbors.push({ r: r - 1, c: c - 1 });
     // top right
-    if (c < this.getCols() - 1 && r > 0)
+    if (c < numC - 1 && r > 0)
       g.neighbors.push({ r: r - 1, c: c + 1 });
     // bottom left
-    if (c > 0 && r < this.getRows() - 1)
+    if (c > 0 && r < numR - 1)
       g.neighbors.push({ r: r + 1, c: c - 1 });
     // bottom right
-    if (c < this.getCols() - 1 && r < this.getRows() - 1)
+    if (c < numC - 1 && r < numR - 1)
       g.neighbors.push({ r: r + 1, c: c + 1 });
   }
 
@@ -704,14 +714,17 @@ class World {
 
   drawUI() {
     let player_pos = getPlayerPos();
+    let numC = this.getCols();
+    let numR = this.getRows();
+    
     noStroke();
     fill(color(120, 120, 0));
     rect(0, 0, width, this.border_offset);
     fill(255);
     textAlign(CENTER, CENTER);
     text(
-      `microRL [${player_pos.c}/${this.numCols - 1}:${player_pos.r}/${
-        this.numRows - 1
+      `microRL [${player_pos.c}/${numC - 1}:${player_pos.r}/${
+        numR - 1
       }]`,
       halfScreenWidth,
       this.halfCellSize //- 4
@@ -723,16 +736,18 @@ class World {
     this.drawUI();
 
     let player_pos = getPlayerPos();
+    let numC = this.getCols();
+    let numR = this.getRows();
 
     // http://www.roguebasin.com/index.php/Scrolling_map
 
     /** DEBUG WHOLE MAP DRAW **/
     if (debugZoom) {
       let y = 0;
-      let cs = width / this.numCols;
-      for (let r = 0; r < this.numRows; r++) {
+      let cs = width / numC;
+      for (let r = 0; r < numR; r++) {
         let x = 0;
-        for (let c = 0; c < this.numCols; c++) {
+        for (let c = 0; c < numC; c++) {
           this.drawTile(x, y, c, r, cs);
           x += cs;
         }
@@ -744,13 +759,13 @@ class World {
       let starty, startx, endy, endx;
 
       if (player_pos.c < this.halfCamC) startx = 0;
-      else if (player_pos.c >= this.numCols - this.halfCamC)
-        startx = this.numCols - this.camCols;
+      else if (player_pos.c >= numC - this.halfCamC)
+        startx = numC - this.camCols;
       else startx = player_pos.c - this.halfCamC;
 
       if (player_pos.r < this.halfCamR) starty = 0;
-      else if (player_pos.r >= this.numRows - this.halfCamR)
-        starty = this.numRows - this.camRows;
+      else if (player_pos.r >= numR - this.halfCamR)
+        starty = numR - this.camRows;
       else starty = player_pos.r - this.halfCamR;
 
       // draw in camera range
