@@ -53,15 +53,10 @@ function setup() {
   world = new World(numCols, numRows, subCols, subRows);
   world.placeObject(getPlayerPos());
 
-  // why doesn't this work???
-  // for (let i = 1; i <= world.towns.length; i++)
-  //   world.placeObject(getPlayerPos(i), i);
-
-  world.placeObject(getPlayerPos(1), 1); // dungeon level placement
-  world.placeObject(getPlayerPos(2), 2);
-  world.placeObject(getPlayerPos(3), 3);
-  world.placeObject(getPlayerPos(4), 4);
-  world.placeObject(getPlayerPos(5), 5);
+  // dungeon level placement
+  for (let i = 1; i <= world.towns.length; i++) {
+    world.placeObject(getPlayerPos(i), i);
+  }
 
   // connect player to town to ensure a path
 
@@ -95,26 +90,35 @@ function draw() {
     let next_r = player_pos.r;
     let next_c = player_pos.c;
     if (keyIsDown(74)) {
+      dirty = true;
       next_r++;
     } else if (keyIsDown(75)) {
+      dirty = true;
       next_r--;
     } else if (keyIsDown(72)) {
+      dirty = true;
       next_c--;
     } else if (keyIsDown(76)) {
+      dirty = true;
       next_c++;
     } else if (keyIsDown(89)) {
+      dirty = true;
       next_r--;
       next_c--;
     } else if (keyIsDown(85)) {
+      dirty = true;
       next_r--;
       next_c++;
     } else if (keyIsDown(66)) {
+      dirty = true;
       next_r++;
       next_c--;
     } else if (keyIsDown(78)) {
+      dirty = true;
       next_r++;
       next_c++;
     } else if (keyIsDown(190)) {
+      dirty = true;
       // period
     }
 
@@ -128,12 +132,13 @@ function draw() {
     player_pos.c = constrain(player_pos.c, 0, world.getCols() - 1);
     player_pos.r = constrain(player_pos.r, 0, world.getRows() - 1);
 
-    dirty = true;
+    // dirty = true;
 
     // update all entities after keypress
-    // for (let e of entities) {
-    //   e.update();
-    // }
+    if (world.moveableEntities[world.worldIndex] != undefined && world.moveableEntities[world.worldIndex].length > 0) {
+    for (let e of world.moveableEntities[world.worldIndex]) {
+      e.update();
+    }}
   }
 }
 
@@ -156,6 +161,7 @@ const Tiles = {
   tree8: { c: 4, r: 1, ascii: "⇮", color: "#82e25f" },
   space1: { c: 0, r: 22, ascii: " ", color: "#000000" },
   space2: { c: 1, r: 22, ascii: " ", color: "#222222" },
+  enemy: { c: 25, r: 2, ascii: "o", color: "#ff0000" },
 };
 
 // is this something we can walk over?
@@ -197,6 +203,35 @@ class Entity {
   }
 }
 
+class MoveableEntity {
+  constructor(type, pos) {
+    this.type = type;
+    this.r = pos.r;
+    this.c = pos.c;
+
+    this.hp = 0;
+    this.str = 0;
+
+    this.sprite = "X";
+    this.color = "#ff00ff";
+    if (this.type == "enemy") {
+      this.sprite = "o";
+      this.color = "#ff0000";
+    }
+  }
+  
+  update() {
+    if (random() > 0.8) {
+      let next_c = random([-1,0,1]) + this.c;
+      let next_r = random([-1,0,1]) + this.r;
+      if (world.isWalkable(next_c, next_r)) {
+        this.c = next_c;
+        this.r = next_r;
+      }
+    }
+  }
+}
+
 class World {
   constructor(numCols, numRows, subCols, subRows) {
     this.numCols = numCols;
@@ -218,6 +253,12 @@ class World {
 
     textSize(this.cellSize);
 
+    // minimap gfx objects
+    this.minimaps = [];
+    let _g = createGraphics(100, 100);
+    _g.background(color(0, 0, 0, 180));
+    this.minimaps.push(_g);
+
     this.world = this.generateWorld();
     // console.log(this.grid);
     let _t = this.placeTowns();
@@ -229,6 +270,10 @@ class World {
 
     // borders and paths
     this.placePaths();
+
+    // enemies and npcs
+    this.moveableEntities = this.generateEntities();
+    console.log(this.moveableEntities);
   }
 
   // eventually these need to be their own thing
@@ -255,6 +300,32 @@ class World {
       p.c = random(0, this.getCols() - 1) | 0;
     }
   }
+
+  // create all NPCs and enemies
+  // list based on world
+  // update on same plane
+  // run update each time a level changes on other slices
+  generateEntities() {
+    let entities = [];
+    entities[0] = [];
+    for (let i = 1; i <= this.towns.length; i++) entities[i] = [];
+
+    // overworld
+    // tbd - config!
+    for (let i = 0; i < random(250, 400); i++) {
+      let pos = { r: -1, c: -1 };
+      this.placeObject(pos);
+      let e = new MoveableEntity("enemy", pos);
+      entities[0].push(e);
+    }
+
+    // dungeons -- tbd loot table?
+
+    return entities;
+  }
+
+  // return filter on index
+  getLevelEntities() {}
 
   // in-bounds and can walk over it
   isWalkable(c, r, worldLevel) {
@@ -409,6 +480,13 @@ class World {
 
       _grid[t.r][t.c].type = Tiles.town;
       _grid[t.r][t.c].worldID = i + 1;
+
+      // TBD - abstract better
+      let _x = t.c / 5;
+      let _y = t.r / 5;
+      this.minimaps[0].fill(color(255, 0, 0));
+      this.minimaps[0].noStroke();
+      this.minimaps[0].rect(_x, _y, 2);
     }
 
     // dirt around towns
@@ -438,7 +516,7 @@ class World {
 
     // generate sub-floors
     for (let town in this.towns) {
-      let alg = random(["randomWalker", "CA"]);//, "BSP"]);
+      let alg = random(["randomWalker", "CA"]); //, "BSP"]);
       let caChance = 0.45;
 
       let _grid = [];
@@ -522,18 +600,17 @@ class World {
         // }
         // cellular automata
       } else if (alg == "CA") {
-        let caSteps = 10;//5;//random(3,5);
-        let deathLimit = 3;//random(2,4);
-        let birthLimit = 4;//deathLimit+1;
+        let caSteps = 10; //5;//random(3,5);
+        let deathLimit = 3; //random(2,4);
+        let birthLimit = 4; //deathLimit+1;
 
         for (let s = 0; s < caSteps; s++) {
           let _newGrid = [];
           for (let r = 0; r < this.subRows; r++) {
             _newGrid[r] = [];
-            for (let c = 0; c < this.subCols; c++) {              
-              _newGrid[r][c] = {walkable: true, type: Tiles.dirt1};
+            for (let c = 0; c < this.subCols; c++) {
+              _newGrid[r][c] = { walkable: true, type: Tiles.dirt1 };
 
-              
               // count of neighbors
               let aliveCount = 0;
               for (let n = 0; n < _grid[r][c].neighbors.length; n++) {
@@ -560,7 +637,6 @@ class World {
                   _newGrid[r][c].type = Tiles.space1;
                 }
               }
-              
             }
           }
 
@@ -572,7 +648,6 @@ class World {
             }
           }
         }
-       
       }
 
       // add to main object
@@ -598,8 +673,11 @@ class World {
         let _surround = false;
         if (_n < 0.25) {
           _grid[r][c].type = random([Tiles.space1, Tiles.space2]);
+
+          this.minimaps[0].fill(color(0));
         } else if (_n < 0.4) {
           _grid[r][c].type = random([Tiles.grass1, Tiles.grass2, Tiles.grass3]);
+          this.minimaps[0].fill(color(0, 180, 0));
         } else if (_n < 0.6) {
           _grid[r][c].type = random([
             Tiles.tree1,
@@ -611,11 +689,21 @@ class World {
             Tiles.tree7,
             Tiles.tree8,
           ]);
+
+          this.minimaps[0].fill(color(0, 255, 0));
         } else if (_n < 0.8) {
           _grid[r][c].type = random([Tiles.grass1, Tiles.grass2, Tiles.grass3]);
+          this.minimaps[0].fill(color(0, 180, 0));
         } else {
           _grid[r][c].type = random([Tiles.space1, Tiles.space2]);
+          this.minimaps[0].fill(color(0));
         }
+
+        // TBD - abstract better
+        let _x = c / 5;
+        let _y = r / 5;
+        this.minimaps[0].noStroke();
+        this.minimaps[0].rect(_x, _y, 2);
 
         _grid[r][c].walkable = false;
         if (WALKABLE.indexOf(_grid[r][c].type) >= 0)
@@ -640,11 +728,11 @@ class World {
   }
 
   // expects {r:r, c:c}
-  getCell(g, in_grid=null) {
+  getCell(g, in_grid = null) {
     let _grid;
     if (in_grid == null) _grid = this.getGrid();
     else _grid = in_grid;
-    
+
     return _grid[g.r][g.c];
     // let _grid = this.getGrid();
     // return _grid[g.r][g.c];
@@ -667,14 +755,11 @@ class World {
     // top left
     if (c > 0 && r > 0) g.neighbors.push({ r: r - 1, c: c - 1 });
     // top right
-    if (c < numC - 1 && r > 0)
-      g.neighbors.push({ r: r - 1, c: c + 1 });
+    if (c < numC - 1 && r > 0) g.neighbors.push({ r: r - 1, c: c + 1 });
     // bottom left
-    if (c > 0 && r < numR - 1)
-      g.neighbors.push({ r: r + 1, c: c - 1 });
+    if (c > 0 && r < numR - 1) g.neighbors.push({ r: r + 1, c: c - 1 });
     // bottom right
-    if (c < numC - 1 && r < numR - 1)
-      g.neighbors.push({ r: r + 1, c: c + 1 });
+    if (c < numC - 1 && r < numR - 1) g.neighbors.push({ r: r + 1, c: c + 1 });
   }
 
   drawTile(x, y, c, r, cs = null) {
@@ -716,16 +801,14 @@ class World {
     let player_pos = getPlayerPos();
     let numC = this.getCols();
     let numR = this.getRows();
-    
+
     noStroke();
-    fill(color(120, 120, 0));
+    fill(color(120, 20, 20));
     rect(0, 0, width, this.border_offset);
     fill(255);
     textAlign(CENTER, CENTER);
     text(
-      `microRL [${player_pos.c}/${numC - 1}:${player_pos.r}/${
-        numR - 1
-      }]`,
+      `microRL [${player_pos.c}/${numC - 1}:${player_pos.r}/${numR - 1}]`,
       halfScreenWidth,
       this.halfCellSize //- 4
     );
@@ -771,6 +854,22 @@ class World {
       // draw in camera range
       let _x = 0;
       let _y = this.border_offset;
+
+      // draw entities in view
+      let entities = [];
+      if (
+        this.moveableEntities[this.worldIndex] != undefined &&
+        this.moveableEntities[this.worldIndex].length > 0
+      ) {
+        entities = this.moveableEntities[this.worldIndex].filter(
+          (e) =>
+            e.r >= starty &&
+            e.r < starty + this.camRows &&
+            e.c >= startx &&
+            e.c < startx + this.camCols
+        );
+      }
+
       for (let r = starty; r < starty + this.camRows; r++) {
         _x = 0;
         for (let c = startx; c < startx + this.camCols; c++) {
@@ -780,8 +879,38 @@ class World {
 
           this.drawTile(_x, _y, c, r);
 
+          // can just move this down later if it is too slow...
+          for (let i = entities.length - 1; i >= 0; i--) {
+            let e = entities[i];
+            if (e.r == r && e.c == c) {
+              if (asciiMode) {
+                fill(e.color);
+                text(e.sprite, _x + this.halfCellSize, _y + this.halfCellSize);
+              } else {
+                // sprite
+                let _col = color(e.color); //Tiles.player.color);
+                _col.setAlpha(140);
+                fill(_col);
+                square(_x, _y, this.cellSize);
+                image(
+                  spriteSheet,
+                  _x,
+                  _y,
+                  this.cellSize,
+                  this.cellSize,
+                  Tiles.enemy.c * spriteSize,
+                  Tiles.enemy.r * spriteSize,
+                  spriteSize,
+                  spriteSize
+                );
+              }
+              entities.splice(i, 1);
+            }
+          }
+
+          // draw player
           if (r == player_pos.r && c == player_pos.c) {
-            // abstract later
+            // tbd: abstract later
             if (asciiMode) {
               fill(Tiles.player.color);
               text("@", _x + this.halfCellSize, _y + this.halfCellSize);
@@ -887,6 +1016,18 @@ class World {
     //   y += this.cellSize;
     // }
     if (dithered) dither(null);
+
+    // minimap
+    let _x = width - 100;
+    let _y = 0;
+    image(this.minimaps[0], _x, _y);
+    _x = _x + player_pos.c / 5;
+    _y = _y + player_pos.r / 5;
+    drawShadow(0, 0, 5, color(20));
+    fill(color(255, 0, 255));
+    noStroke();
+    rect(_x, _y, 2);
+    drawShadow(0, 0, 0, 0);
   }
 }
 
@@ -906,4 +1047,19 @@ function heuristic(a, b) {
   var d = dist(a.i, a.j, b.i, b.j);
   // var d = abs(a.i - b.i) + abs(a.j - b.j);
   return d;
+}
+
+// https://p5js.org/reference/#/p5/drawingContext
+function drawShadow(x, y, b, c, g = null) {
+  if (g == null) {
+    drawingContext.shadowOffsetX = x;
+    drawingContext.shadowOffsetY = y;
+    drawingContext.shadowBlur = b; // * scale;
+    drawingContext.shadowColor = c;
+  } else {
+    g.drawingContext.shadowOffsetX = x;
+    g.drawingContext.shadowOffsetY = y;
+    g.drawingContext.shadowBlur = b; // * scale;
+    g.drawingContext.shadowColor = c;
+  }
 }
