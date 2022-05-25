@@ -124,6 +124,8 @@ function draw() {
 
     if (world.isTown(next_c, next_r)) {
       world.worldIndex = world.getTownID(next_c, next_r); //1;
+    } else if (world.tryHitEntity(player, next_c, next_r, world.worldIndex)) {
+      console.log("owwie");
     } else if (world.isWalkable(next_c, next_r)) {
       player_pos.c = next_c;
       player_pos.r = next_r;
@@ -135,10 +137,14 @@ function draw() {
     // dirty = true;
 
     // update all entities after keypress
-    if (world.moveableEntities[world.worldIndex] != undefined && world.moveableEntities[world.worldIndex].length > 0) {
-    for (let e of world.moveableEntities[world.worldIndex]) {
-      e.update();
-    }}
+    if (
+      world.moveableEntities[world.worldIndex] != undefined &&
+      world.moveableEntities[world.worldIndex].length > 0
+    ) {
+      for (let e of world.moveableEntities[world.worldIndex]) {
+        e.update();
+      }
+    }
   }
 }
 
@@ -154,13 +160,14 @@ const Tiles = {
   tree1: { c: 0, r: 1, ascii: "⇑", color: "#203a16" },
   tree2: { c: 1, r: 1, ascii: "⥣", color: "#2c6318" },
   tree3: { c: 2, r: 1, ascii: "⤉", color: "#5f9e48" },
-  tree4: { c: 3, r: 1, ascii: "⇈", color: "#46cc16" },
+  tree4: { c: 3, r: 1, ascii: "⇈", cykolor: "#46cc16" },
   tree5: { c: 4, r: 1, ascii: "▲", color: "#103004" },
   tree6: { c: 5, r: 1, ascii: "⇞", color: "#3d632f" },
   tree7: { c: 3, r: 1, ascii: "⇧", color: "#47d613" },
   tree8: { c: 4, r: 1, ascii: "⇮", color: "#82e25f" },
   space1: { c: 0, r: 22, ascii: " ", color: "#000000" },
   space2: { c: 1, r: 22, ascii: " ", color: "#222222" },
+  bones: { c: 0, r: 15, ascii: "%", color: "#333333" },
   enemy: { c: 25, r: 2, ascii: "o", color: "#ff0000" },
 };
 
@@ -208,6 +215,7 @@ class MoveableEntity {
     this.type = type;
     this.r = pos.r;
     this.c = pos.c;
+    this.dead = false;
 
     this.hp = 0;
     this.str = 0;
@@ -217,16 +225,19 @@ class MoveableEntity {
     if (this.type == "enemy") {
       this.sprite = "o";
       this.color = "#ff0000";
+      this.ssSprite = Tiles.enemy;
     }
   }
-  
+
   update() {
-    if (random() > 0.8) {
-      let next_c = random([-1,0,1]) + this.c;
-      let next_r = random([-1,0,1]) + this.r;
-      if (world.isWalkable(next_c, next_r)) {
-        this.c = next_c;
-        this.r = next_r;
+    if (!this.dead) {
+      if (random() > 0.8) {
+        let next_c = random([-1, 0, 1]) + this.c;
+        let next_r = random([-1, 0, 1]) + this.r;
+        if (world.isWalkable(next_c, next_r)) {
+          this.c = next_c;
+          this.r = next_r;
+        }
       }
     }
   }
@@ -326,6 +337,34 @@ class World {
 
   // return filter on index
   getLevelEntities() {}
+
+  // hit whatever is there if it is there
+  tryHitEntity(entity, c, r, worldLevel) {
+    let retval = false;
+    if (this.isWalkable(c, r, worldLevel)) {
+      let _grid = this.getGrid(worldLevel);
+
+      if (
+        this.moveableEntities[worldLevel] != undefined &&
+        this.moveableEntities[worldLevel].length > 0
+      ) {
+        for (let e of this.moveableEntities[worldLevel]) {
+          if (e.c == c && e.r == r && !e.dead) {
+            e.hp--;
+            if (e.hp <= 0) {
+              e.dead = true;
+              e.ssSprite = Tiles.bones;
+              e.color = Tiles.bones.color;
+            }
+
+            retval = true;
+            break;
+          }
+        }
+      }
+    }
+    return retval;
+  }
 
   // in-bounds and can walk over it
   isWalkable(c, r, worldLevel) {
@@ -898,8 +937,10 @@ class World {
                   _y,
                   this.cellSize,
                   this.cellSize,
-                  Tiles.enemy.c * spriteSize,
-                  Tiles.enemy.r * spriteSize,
+                  e.ssSprite.c * spriteSize,
+                  e.ssSprite.r * spriteSize,
+                  // Tiles.enemy.c * spriteSize,
+                  // Tiles.enemy.r * spriteSize,
                   spriteSize,
                   spriteSize
                 );
